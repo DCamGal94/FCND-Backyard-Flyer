@@ -30,7 +30,8 @@ class BackyardFlyer(Drone):
         # initial state
         self.flight_state = States.MANUAL
 
-        # TODO: Register all your callbacks here
+        # Telemetry events that drive the state machine;
+        # each callback fires when its message arrives
         self.register_callback(MsgID.LOCAL_POSITION, self.local_position_callback)
         self.register_callback(MsgID.LOCAL_VELOCITY, self.velocity_callback)
         self.register_callback(MsgID.STATE, self.state_callback)
@@ -53,11 +54,29 @@ class BackyardFlyer(Drone):
 
     def state_callback(self):
         """
-        TODO: Implement this method
-
         This triggers when `MsgID.STATE` is received and self.armed and self.guided contain new data
         """
-        pass
+
+        # Mission is over (set False when we return to MANUAL); ignore further
+        # STATE messages so the callback can't restart the sequence.
+        if not self.in_mission:
+            return
+        # Idle on the ground, waiting for the first STATE message: start the
+        # mission. The transition sets flight_state to ARMING, so later messages
+        # skip this branch and don't re-send the arm command.
+        if self.flight_state == States.MANUAL:
+            self.arming_transition()
+        # Arm command sent, not yet confirmed. self.armed is telemetry from the
+        # vehicle, so wait for it to read True before taking off. Taking off
+        # before the autopilot confirms the arm would be rejected.
+        elif self.flight_state == States.ARMING:
+            if self.armed:
+                self.takeoff_transition()
+        # Landed and disarm commanded: wait for the vehicle to confirm
+        # (armed == False) before handing control back and ending the mission.
+        elif self.flight_state == States.DISARMING:
+            if not self.armed:
+                self.manual_transition()
 
     def calculate_box(self):
         """TODO: Fill out this method
